@@ -1,0 +1,11 @@
+gnss_host: '172.31.0.90'
+gnss_port: 3002
+ntrip_host: 'uk.nrtk.eu'
+ntrip_port: 9301
+mountpoint: 'MSM_iMAX'
+username: '40017819B'
+password: 'UOFE002'
+fix_latitude: 55.94567269060362
+fix_longitude: -3.187862754696656
+fix_altitude: 545.4
+chunk_size: 1024
