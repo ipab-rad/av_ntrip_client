@@ -8,6 +8,7 @@ import yaml
 import threading
 import colorlog
 from pyrtcm import RTCMReader
+import struct
 
 class NtripClient:
     def __init__(self, config_path):
@@ -19,7 +20,22 @@ class NtripClient:
         self.send_nmea_thread = None
         self.gnss_log_thread = None
         self.stop_event = threading.Event()
-
+        
+        # Novatel response offsets
+        self.novatel_response_binary_dict = {
+            'response_id': {
+                'offset': 28,
+                'size': 4
+            },
+            'checksum': {
+              'size': 4  
+            }
+        }
+        
+        # This dictionary can contain 255 values, best to load them from a JSON file
+        self.novatel_response_id_dict = {
+            1: 'OK'
+        }
         # Configure logging with colors
         self.configure_logging()
 
@@ -32,7 +48,7 @@ class NtripClient:
         console_handler = colorlog.StreamHandler()
         console_handler.setFormatter(formatter)
         
-        logging.basicConfig(level=logging.INFO, handlers=[console_handler])
+        logging.basicConfig(level=logging.DEBUG, handlers=[console_handler])
 
     def load_config(self, config_path):
         with open(config_path, 'r') as file:
@@ -120,6 +136,77 @@ class NtripClient:
                 return sentence
         return ""
     
+    def parse_novatel_binary(self,data):
+        
+        # Get response id information
+        offset = self.novatel_response_binary_dict['response_id']['offset']
+        end = offset + self.novatel_response_binary_dict['response_id']['size']
+        # Decode reponse id into decimal number
+        response_id = int.from_bytes(data[offset:end], byteorder='little')
+        if  response_id in self.novatel_response_id_dict:
+            logging.debug(f'Novatel reply with: {self.novatel_response_id_dict[response_id]}')     
+        else:
+            logging.warning(f'Novatel reply with unknown response id: {response_id}')
+    
+    def split_data(self,data):
+        # Define the headers
+        binary_header = b'\xaaD\x12\x1c'
+        ascii_start = b'$GP'
+
+        # Initialize variables
+        messages = []
+        binary_msgs = []
+        ascii_msgs = []
+        
+        i = 0
+        length = len(data)
+
+        while i < length:
+            if data.startswith(binary_header, i):
+                # Found the start of a binary message
+                start = i
+                i += len(binary_header)
+                
+                # Find the next binary header or ASCII start
+                next_binary_index = data.find(binary_header, i)
+                next_ascii_index = data.find(ascii_start, i)
+                
+                if next_binary_index == -1:
+                    next_binary_index = length
+                if next_ascii_index == -1:
+                    next_ascii_index = length
+                
+                # Determine the end of the current binary message
+                end = min(next_binary_index, next_ascii_index)
+                
+                # Extract and store the binary message
+                binary_msgs.append(data[start:end])
+
+                # Move index past this message
+                i = end
+
+            elif data.startswith(ascii_start, i):
+                # Found the start of an ASCII message
+                start = i
+                # Find the end of this ASCII message
+                end = data.find(b'\r\n', i)
+                if end == -1:
+                    # If no end delimiter is found, process till the end of data
+                    end = length
+                else:
+                    end += len(b'\r\n')
+                # Extract and store the ASCII message
+                ascii_msgs.append(data[start:end])
+                # Move index past this message
+                i = end
+
+            else:
+                # Move to the next byte if no start of a message is found
+                i += 1
+
+        return ascii_msgs, binary_msgs
+    
+    
     def read_nmea_and_send_to_server(self):
         """Read incoming messages from the GNSS receiver."""
         while not self.stop_event.is_set():
@@ -128,27 +215,47 @@ class NtripClient:
                 time.sleep(1)
                 continue
             try:
-                message = self.gnss_socket.recv(1024).decode()
-                                
+                message = self.gnss_socket.recv(1024)
+                
                 if message:
-                    if 'COM' in message:
-                        logging.info(f'GNSS has ACK!')
-                        continue
-                    gpgga_sentence = self.extract_gpgga_sentence(message)
-                    logging.info(f"Received GPGGA message: {gpgga_sentence}")
                     
-                    self.send_nmea_to_ntrip_server(gpgga_sentence)
-                    # logging.info(f'Received GNSS message: {message}')
+                    logging.debug(f'Received {len(message)} bytes')
+                    
+                    # Split msgs into binay and ascii like msgs
+                    ascii_msgs, binary_msgs = self.split_data(message)
+                    
+                    if ascii_msgs:
+                        str = ''
+                        # One of these ascii msgs should contain GPGGA data
+                        for ascci_msg in ascii_msgs:
+                            msg = ascci_msg.decode()
+                            str += '\t' + msg
+                            if 'GPGGA' in msg:
+                                # self.send_nmea_to_ntrip_server(ascci_msg)
+                                pass
+                            
+                        logging.debug(f'\nASCII msgs:\n{str}')
+                        
+                                
+                    if binary_msgs:
+                        for binary_msg in binary_msgs:
+                            # print(f"{binary_msg}")
+                            self.parse_novatel_binary(binary_msg)
+
+                                
+                    # Fixed gpgga DEBUG!
+                    gpgga_sentence_fixed = self.generate_gga_sentence()
+                    self.send_nmea_to_ntrip_server(gpgga_sentence_fixed)
                 else:
                     logging.warning("No GNSS message received.")
             except socket.timeout:
                 logging.warning("Socket timeout occurred while reading GNSS data.")
             except Exception as e:
                 logging.error(f"Error reading GNSS data: {e}")
+                logging.warning(f'Received: {message}')
+                
                 continue
-                # self.gnss_socket.close()
-                # self.gnss_socket = None
-                break
+
 
             time.sleep(1)
 
@@ -157,7 +264,7 @@ class NtripClient:
         if self.gnss_socket:
             try:
                 self.gnss_socket.send(rctm_sentence)
-                logging.info(f"Sent RTCM  to GNSS receiver")
+                logging.debug(f"Sent RTCM  to GNSS receiver")
             except Exception as e:
                 logging.error(f"Error sending command to GNSS receiver: {e}")
         else:
@@ -191,21 +298,44 @@ class NtripClient:
             time.sleep(1)
             return
         
-        request = f"{gpgga_sentence}\r\n\r\n"
+        request = f"{gpgga_sentence}\r\n"
         try:
             self.ntrip_socket.send(request.encode())
             self.nmea_request_sent = True
-            logging.info("Sent NMEA sentence to NTRIP server.")
+            logging.debug("Sent NMEA sentence to NTRIP server.")
         except Exception as e:
             logging.error(f"Error sending NMEA sentence: {e}")
             self.nmea_request_sent = False
 
+    def get_rtcm3_msg_id(self, data):
+        """
+        Extracts the RTCM v3 message ID from the given data byte array.
 
+        :param data: Byte array of the RTCM v3 message.
+        :return: The message ID (integer).
+        :raises ValueError: If the data does not start with the correct SOM byte or is too short.
+        """
+        if len(data) < 4:
+            logging.error("Data is too short to be a valid RTCM v3 message.")
+
+        # Check for the Start of Message (SOM) byte
+        if data[0] != 0xD3:
+            logging.error("Invalid Start of Message (SOM) byte")
+
+        # Message ID is located in the 3rd and 4th bytes (index 2 and 3)
+        byte_2 = data[2]
+        byte_3 = data[3]
+
+        # Extract the 12-bit message ID
+        msg_id = ((byte_2 & 0x0F) << 8) | byte_3
+
+        return msg_id
+    
     def read_rtcm_and_send_to_gnss(self):
         """Constantly check for new RTCMv3 data coming from the NTRIP server."""
         while self.ntrip_connected:
             if not self.nmea_request_sent:
-                logging.info("NMEA request not sent. Skipping RTCM read.")
+                logging.info("Waiting for client to send NMEA data.")
                 time.sleep(1)
                 continue
             
@@ -218,11 +348,14 @@ class NtripClient:
                         break
 
                 if rtcm_res:
-                    rtcm_msg = RTCMReader.parse(rtcm_res)
-                    logging.info(f'Received RTCMv3 message with ID {rtcm_msg.identity}')
                     
-                    self.send_rtcm_to_gnss(rtcm_msg.payload)
-                    # logging.info(f'\tMsg:{rtcm_msg}')
+                    rtcm_msg = RTCMReader.parse(rtcm_res)
+                    logging.debug(f'RTCM received ID: {rtcm_msg.identity}')
+                    
+                    # rtcm_id = self.get_rtcm3_msg_id(rtcm_res)
+                    # logging.debug(f'RTCM received ID mine : {rtcm_id}')
+                        
+                    self.send_rtcm_to_gnss(rtcm_res)
                 else:
                     logging.info("No RTCMv3 data received.")
 
@@ -234,7 +367,6 @@ class NtripClient:
                 self.ntrip_connected = False
                 break
 
-            # time.sleep(1)
 
     def run(self):
         """Main execution loop."""
@@ -244,16 +376,9 @@ class NtripClient:
                 continue
             
             try:
-                # Start reading GNSS log in a separate thread
+                # Start reading GNSS logs in a separate thread
                 self.gnss_log_thread = threading.Thread(target=self.read_nmea_and_send_to_server, daemon=True)
                 self.gnss_log_thread.start()
-                
-                # # Start sending NMEA sentences in a separate thread
-                # self.stop_event.clear()
-                # self.send_nmea_thread = threading.Thread(target=self.send_nmea_to_ntrip_server, daemon=True)
-                # self.send_nmea_thread.start()
-
-
                 
                 # Read RTCM data and send to the gnss in the main thread
                 self.read_rtcm_and_send_to_gnss()
