@@ -7,6 +7,8 @@ import logging
 import yaml
 import threading
 import colorlog
+
+from collections import defaultdict
 from pyrtcm import RTCMReader
 
 from nmea_generator import NMEAGenerator
@@ -22,7 +24,7 @@ class NtripClient:
         self.send_nmea_thread = None
         self.gnss_log_thread = None
         self.stop_event = threading.Event()
-        
+        self.received_rtcm_msgs_ids = defaultdict(int)
         # Novatel response offsets
         self.novatel_response_binary_dict = {
             'response_id': {
@@ -86,7 +88,7 @@ class NtripClient:
             return False
 
         request = (
-            f"GET /{self.mountpoint} HTTP/1.1\r\n"
+            f"GET /{self.mountpoint} HTTP/1.0\r\n"
             f"Host: {self.ntrip_host}\r\n"
             f"Ntrip-Version: Ntrip/1.0\r\n"
             f"User-Agent: NTRIP PythonClient/1.0\r\n"
@@ -240,12 +242,9 @@ class NtripClient:
                         for binary_msg in binary_msgs:
                             self.parse_novatel_binary(binary_msg)
 
-                    # Fixed nmea DEBUG!
-                    gpgga_sentence_fixed = self.nmea_generator.generate_gga_sentence()
-                    self.send_nmea_to_ntrip_server(gpgga_sentence_fixed)
-                    
-                    # nmea_sentences = self.nmea_generator.get_fix_nmea_sentences()
-                    # self.send_nmea_to_ntrip_server(nmea_sentences)
+                    # Fixed nmea DEBUG!              
+                    nmea_sentences = self.nmea_generator.get_fix_nmea_sentences()
+                    self.send_nmea_to_ntrip_server(nmea_sentences)
                 else:
                     logging.warning("No GNSS message received.")
             except socket.timeout:
@@ -332,6 +331,7 @@ class NtripClient:
                     rtcm_msg = RTCMReader.parse(rtcm_res)
                     logging.debug(f'RTCM received ID: {rtcm_msg.identity}')
                     
+                    self.received_rtcm_msgs_ids[int(rtcm_msg.identity)] += 1 
                     # rtcm_id = self.get_rtcm3_msg_id(rtcm_res)
                     # logging.debug(f'RTCM received ID mine : {rtcm_id}')
                         
@@ -365,6 +365,7 @@ class NtripClient:
 
             except KeyboardInterrupt:
                 logging.info("Interrupted by user. Disconnecting...")
+                logging.debug(f'\nReceived RTCM msgs types:\n{self.received_rtcm_msgs_ids}')
             finally:
                 self.stop_event.set()
                 self.send_nmea_thread.join()
