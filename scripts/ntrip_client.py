@@ -7,6 +7,7 @@ import logging
 import yaml
 import threading
 import colorlog
+import argparse
 
 from collections import defaultdict
 from pyrtcm import RTCMReader
@@ -15,7 +16,7 @@ from nmea_generator import NMEAGenerator
 
 
 class NtripClient:
-    def __init__(self, config_path):
+    def __init__(self, config_path, use_fix_location=False, debug_mode=False):
         self.load_config(config_path)
         self.ntrip_socket = None
         self.gnss_socket = None
@@ -24,6 +25,8 @@ class NtripClient:
         self.send_nmea_thread = None
         self.gnss_log_thread = None
         self.stop_event = threading.Event()
+        self.use_fix_location = use_fix_location
+        self.debug_mode = debug_mode
         self.received_rtcm_msgs_ids = defaultdict(int)
         # Novatel response offsets
         self.novatel_response_binary_dict = {
@@ -57,7 +60,10 @@ class NtripClient:
         console_handler = colorlog.StreamHandler()
         console_handler.setFormatter(formatter)
         
-        logging.basicConfig(level=logging.DEBUG, handlers=[console_handler])
+        if self.debug_mode:
+            logging.basicConfig(level=logging.DEBUG, handlers=[console_handler])
+        else:
+            logging.basicConfig(level=logging.INFO, handlers=[console_handler])
 
     def load_config(self, config_path):
         with open(config_path, 'r') as file:
@@ -211,6 +217,7 @@ class NtripClient:
     def read_nmea_and_send_to_server(self):
         """Read incoming messages from the GNSS receiver."""
         while not self.stop_event.is_set():
+            # Check gnss connection            
             if not self.gnss_socket:
                 logging.warning("GNSS socket not connected.")
                 time.sleep(1)
@@ -235,19 +242,17 @@ class NtripClient:
                         
                         # If we received nmea sentences report back to NTRIP server
                         if nmea_sentences:
-                            # TODO: We either do this or send fixed GNSS data
-                            # self.send_nmea_to_ntrip_server(nmea_sentences)
-                            pass
-                               
-                        logging.debug(f'\nRecevied NMEA from GNSS:\n{nmea_sentences}')
-                                              
+                            logging.debug(f'\nRecevied NMEA from GNSS:\n{nmea_sentences}')
+                            
+                            if not self.use_fix_location:
+                                self.send_nmea_to_ntrip_server(nmea_sentences)
+                            else:
+                                nmea_sentences = self.nmea_generator.get_fix_nmea_sentences()
+                                self.send_nmea_to_ntrip_server(nmea_sentences)
+                                       
                     if binary_msgs:
                         for binary_msg in binary_msgs:
                             self.parse_novatel_binary(binary_msg)
-
-                    # Fixed nmea DEBUG!              
-                    nmea_sentences = self.nmea_generator.get_fix_nmea_sentences()
-                    self.send_nmea_to_ntrip_server(nmea_sentences)
                 else:
                     logging.warning("No GNSS message received.")
             except socket.timeout:
@@ -255,10 +260,8 @@ class NtripClient:
             except Exception as e:
                 logging.error(f"Error reading GNSS data: {e}")
                 logging.warning(f'Received: {message}')
+                    
                 
-                continue
-
-
             time.sleep(1)
 
     def send_rtcm_to_gnss(self, rctm_sentence):
@@ -272,15 +275,14 @@ class NtripClient:
         else:
             logging.warning("GNSS socket not connected. Command not sent.")
 
-    def send_nmea_to_ntrip_server(self, gpgga_sentence):
+    def send_nmea_to_ntrip_server(self, nmea_sentence):
         """Send NMEA sentence to NTRIP server in a separate thread."""
-        # while not self.stop_event.is_set():
         if not self.ntrip_connected:
             logging.warning("Not connected to NTRIP server. Cannot send NMEA.")
             time.sleep(1)
             return
         
-        request = f"{gpgga_sentence}\r\n"
+        request = f"{nmea_sentence}\r\n"
         try:
             self.ntrip_socket.send(request.encode())
             self.nmea_request_sent = True
@@ -317,7 +319,7 @@ class NtripClient:
         """Constantly check for new RTCMv3 data coming from the NTRIP server."""
         while self.ntrip_connected:
             if not self.nmea_request_sent:
-                logging.info("Waiting for client to send NMEA data.")
+                logging.debug("Waiting for client to send NMEA data.")
                 time.sleep(1)
                 continue
             
@@ -376,6 +378,15 @@ class NtripClient:
                 self.disconnect_ntrip_server()
 
 if __name__ == "__main__":
-    client = NtripClient(config_path='params.yaml')
-    client.run()
+    # Initialize the argument parser
+    parser = argparse.ArgumentParser(description="Ntrip Client")
 
+    # Add arguments
+    parser.add_argument('--use-fix-location', action='store_true', help='Use fixed location for Ntrip Client')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+
+    # Parse the arguments
+    args = parser.parse_args()    
+    
+    client = NtripClient(config_path='params.yaml', use_fix_location=args.use_fix_location, debug_mode=args.debug)
+    client.run()
