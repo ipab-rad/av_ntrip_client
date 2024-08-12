@@ -8,7 +8,9 @@ import yaml
 import threading
 import colorlog
 from pyrtcm import RTCMReader
-import struct
+
+from nmea_generator import NMEAGenerator
+
 
 class NtripClient:
     def __init__(self, config_path):
@@ -36,9 +38,14 @@ class NtripClient:
         self.novatel_response_id_dict = {
             1: 'OK'
         }
+        
         # Configure logging with colors
         self.configure_logging()
-
+        
+        # Create a NMEA generator for debugging
+        self.nmea_generator = NMEAGenerator(
+            self.fix_latitude, self.fix_longitude, self.fix_altitude)
+        
     def configure_logging(self):
         """Configure logging with color support."""
         formatter = colorlog.ColoredFormatter(
@@ -127,14 +134,6 @@ class NtripClient:
         except Exception as e:
             logging.error(f'Unable to connect to GNSS receiver: {e}')
             return False
-        
-    def extract_gpgga_sentence(self, data):
-        """Extract the GPGGA sentence from a given string."""
-        sentences = data.splitlines()
-        for sentence in sentences:
-            if sentence.startswith('$GPGGA'):
-                return sentence
-        return ""
     
     def parse_novatel_binary(self,data):
         
@@ -239,13 +238,14 @@ class NtripClient:
                                 
                     if binary_msgs:
                         for binary_msg in binary_msgs:
-                            # print(f"{binary_msg}")
                             self.parse_novatel_binary(binary_msg)
 
-                                
-                    # Fixed gpgga DEBUG!
-                    gpgga_sentence_fixed = self.generate_gga_sentence()
+                    # Fixed nmea DEBUG!
+                    gpgga_sentence_fixed = self.nmea_generator.generate_gga_sentence()
                     self.send_nmea_to_ntrip_server(gpgga_sentence_fixed)
+                    
+                    # nmea_sentences = self.nmea_generator.get_fix_nmea_sentences()
+                    # self.send_nmea_to_ntrip_server(nmea_sentences)
                 else:
                     logging.warning("No GNSS message received.")
             except socket.timeout:
@@ -269,26 +269,6 @@ class NtripClient:
                 logging.error(f"Error sending command to GNSS receiver: {e}")
         else:
             logging.warning("GNSS socket not connected. Command not sent.")
-
-    def generate_gga_sentence(self):
-        """Generate NMEA GGA sentence."""
-        lat_deg = int(self.fix_latitude)
-        lat_min = (self.fix_latitude - lat_deg) * 60
-        lat_hemisphere = 'N' if self.fix_latitude >= 0 else 'S'
-        
-        lon_deg = int(abs(self.fix_longitude))
-        lon_min = (abs(self.fix_longitude) - lon_deg) * 60
-        lon_hemisphere = 'E' if self.fix_longitude >= 0 else 'W'
-        
-        current_time = time.strftime("%H%M%S", time.gmtime())
-        gga = f"GPGGA,{current_time},{lat_deg:02d}{lat_min:07.4f},{lat_hemisphere},{lon_deg:03d}{lon_min:07.4f},{lon_hemisphere},1,08,0.9,{self.fix_altitude:.1f},M,46.9,M,,"
-        
-        checksum = 0
-        for char in gga:
-            checksum ^= ord(char)
-        checksum_hex = f"{checksum:02X}"
-        
-        return f"${gga}*{checksum_hex}"
 
     def send_nmea_to_ntrip_server(self, gpgga_sentence):
         """Send NMEA sentence to NTRIP server in a separate thread."""
