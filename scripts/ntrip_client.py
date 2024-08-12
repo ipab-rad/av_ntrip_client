@@ -226,18 +226,21 @@ class NtripClient:
                     ascii_msgs, binary_msgs = self.split_data(message)
                     
                     if ascii_msgs:
-                        str = ''
+                        nmea_sentences = ''
                         # One of these ascii msgs should contain GPGGA data
                         for ascci_msg in ascii_msgs:
                             msg = ascci_msg.decode()
-                            str += '\t' + msg
-                            if 'GPGGA' in msg:
-                                # self.send_nmea_to_ntrip_server(ascci_msg)
-                                pass
-                            
-                        logging.debug(f'\nASCII msgs:\n{str}')
+                            if 'GP' in msg:
+                                nmea_sentences += f'{msg}'
                         
-                                
+                        # If we received nmea sentences report back to NTRIP server
+                        if nmea_sentences:
+                            # TODO: We either do this or send fixed GNSS data
+                            # self.send_nmea_to_ntrip_server(nmea_sentences)
+                            pass
+                               
+                        logging.debug(f'\nRecevied NMEA from GNSS:\n{nmea_sentences}')
+                                              
                     if binary_msgs:
                         for binary_msg in binary_msgs:
                             self.parse_novatel_binary(binary_msg)
