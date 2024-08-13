@@ -1,5 +1,5 @@
 gnss_host: '172.31.0.90'
-gnss_port: 3002
+gnss_port: 3003
 ntrip_host: 'uk.nrtk.eu'
 ntrip_port: 9301
 mountpoint: 'MSM_iMAX'

@@ -22,7 +22,6 @@ class NtripClient:
         self.gnss_socket = None
         self.ntrip_connected = False
         self.nmea_request_sent = False
-        self.send_nmea_thread = None
         self.gnss_log_thread = None
         self.stop_event = threading.Event()
         self.use_fix_location = use_fix_location
@@ -226,29 +225,28 @@ class NtripClient:
                 message = self.gnss_socket.recv(1024)
                 
                 if message:
-                    
-                    logging.debug(f'Received {len(message)} bytes')
-                    
+                                    
                     # Split msgs into binay and ascii like msgs
                     ascii_msgs, binary_msgs = self.split_data(message)
                     
                     if ascii_msgs:
-                        nmea_sentences = ''
+                        nmea_sentence = ''
                         # One of these ascii msgs should contain GPGGA data
                         for ascci_msg in ascii_msgs:
                             msg = ascci_msg.decode()
-                            if 'GP' in msg:
-                                nmea_sentences += f'{msg}'
+                            if 'GPGGA' in msg:
+                                nmea_sentence += f'{msg}'
                         
                         # If we received nmea sentences report back to NTRIP server
-                        if nmea_sentences:
-                            logging.debug(f'\nRecevied NMEA from GNSS:\n{nmea_sentences}')
+                        if nmea_sentence:
+                            logging.debug(f'\nRecevied NMEA from GNSS:\n{nmea_sentence}')
                             
                             if not self.use_fix_location:
-                                self.send_nmea_to_ntrip_server(nmea_sentences)
+                                self.send_nmea_to_ntrip_server(nmea_sentence)
                             else:
-                                nmea_sentences = self.nmea_generator.get_fix_nmea_sentences()
-                                self.send_nmea_to_ntrip_server(nmea_sentences)
+                                # nmea_sentence = self.nmea_generator.get_fix_nmea_sentences()
+                                nmea_sentence = self.nmea_generator.generate_gga_sentence()
+                                self.send_nmea_to_ntrip_server(nmea_sentence)
                                        
                     if binary_msgs:
                         for binary_msg in binary_msgs:
@@ -262,7 +260,7 @@ class NtripClient:
                 logging.warning(f'Received: {message}')
                     
                 
-            time.sleep(1)
+            # time.sleep(1)
 
     def send_rtcm_to_gnss(self, rctm_sentence):
         """Send a RTCMv3 message to the GNSS receiver."""
@@ -286,7 +284,7 @@ class NtripClient:
         try:
             self.ntrip_socket.send(request.encode())
             self.nmea_request_sent = True
-            logging.debug("Sent NMEA sentence to NTRIP server.")
+            logging.debug("NMEA sentence sent to NTRIP server.")
         except Exception as e:
             logging.error(f"Error sending NMEA sentence: {e}")
             self.nmea_request_sent = False
@@ -373,7 +371,6 @@ class NtripClient:
                 logging.debug(f'\nReceived RTCM msgs types:\n{self.received_rtcm_msgs_ids}')
             finally:
                 self.stop_event.set()
-                self.send_nmea_thread.join()
                 self.gnss_log_thread.join()
                 self.disconnect_ntrip_server()
 
