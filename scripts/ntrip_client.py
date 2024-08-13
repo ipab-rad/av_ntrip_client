@@ -288,30 +288,6 @@ class NtripClient:
         except Exception as e:
             logging.error(f"Error sending NMEA sentence: {e}")
             self.nmea_request_sent = False
-
-    def get_rtcm3_msg_id(self, data):
-        """
-        Extracts the RTCM v3 message ID from the given data byte array.
-
-        :param data: Byte array of the RTCM v3 message.
-        :return: The message ID (integer).
-        :raises ValueError: If the data does not start with the correct SOM byte or is too short.
-        """
-        if len(data) < 4:
-            logging.error("Data is too short to be a valid RTCM v3 message.")
-
-        # Check for the Start of Message (SOM) byte
-        if data[0] != 0xD3:
-            logging.error("Invalid Start of Message (SOM) byte")
-
-        # Message ID is located in the 3rd and 4th bytes (index 2 and 3)
-        byte_2 = data[2]
-        byte_3 = data[3]
-
-        # Extract the 12-bit message ID
-        msg_id = ((byte_2 & 0x0F) << 8) | byte_3
-
-        return msg_id
     
     def read_rtcm_and_send_to_gnss(self):
         """Constantly check for new RTCMv3 data coming from the NTRIP server."""
@@ -334,10 +310,10 @@ class NtripClient:
                     rtcm_msg = RTCMReader.parse(rtcm_res)
                     logging.debug(f'RTCM received ID: {rtcm_msg.identity}')
                     
+                    # Keep track of rtcm msgs ids count
                     self.received_rtcm_msgs_ids[int(rtcm_msg.identity)] += 1 
-                    # rtcm_id = self.get_rtcm3_msg_id(rtcm_res)
-                    # logging.debug(f'RTCM received ID mine : {rtcm_id}')
-                        
+                                            
+                    # Send RCTM to GNSS                                 
                     self.send_rtcm_to_gnss(rtcm_res)
                 else:
                     logging.info("No RTCMv3 data received.")
