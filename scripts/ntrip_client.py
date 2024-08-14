@@ -84,7 +84,7 @@ class NtripClient:
     def connect_ntrip_server(self):
         """Connect to the NTRIP server."""
         self.ntrip_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.ntrip_socket.settimeout(5)
+        self.ntrip_socket.settimeout(10)
 
         try:
             self.ntrip_socket.connect((self.ntrip_host, self.ntrip_port))
@@ -306,14 +306,21 @@ class NtripClient:
                         break
 
                 if rtcm_res:
-                    
-                    rtcm_msg = RTCMReader.parse(rtcm_res)
-                    logging.debug(f'RTCM received ID: {rtcm_msg.identity}')
-                    
-                    # Keep track of rtcm msgs ids count
-                    self.received_rtcm_msgs_ids[int(rtcm_msg.identity)] += 1 
+                    if rtcm_res[0] == 0xD3:
+                        try:
+                            rtcm_msg = RTCMReader.parse(rtcm_res)
+                            logging.debug(f'RTCM received ID: {rtcm_msg.identity}')
+                            
+                            # Keep track of rtcm msgs ids co
+                            self.received_rtcm_msgs_ids[int(rtcm_msg.identity)] += 1 
+                            
+                        except Exception as e:
+                            logging.warning(f'Error parsing RTCM data: {e}\n Msg:\n {rtcm_res}')
                                             
-                    # Send RCTM to GNSS                                 
+                    else:
+                        logging.warning(f'Non-RTCM msg received from Ntrip server:\n{rtcm_res}')
+                            
+                    # Send msg to GNSS                                 
                     self.send_rtcm_to_gnss(rtcm_res)
                 else:
                     logging.info("No RTCMv3 data received.")
