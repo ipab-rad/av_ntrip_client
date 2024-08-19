@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This scipts runs runtime ntrip docker container and
+# This scripts runs runtime ntrip docker container and
 #  passes any arguments to the ntrip_client app
 
 # Build the Docker image
@@ -10,5 +10,5 @@ docker build \
 
 # Run the Docker container and pass any provided arguments
 docker run -it --rm --net host --privileged \
-        -v /etc/localtime:/etc/localtime:ro \
-        av_ntrip_client:latest "$@"
+    -v /etc/localtime:/etc/localtime:ro \
+    av_ntrip_client:latest "$@"
