@@ -181,6 +181,29 @@ class NtripClient:
             logging.error(f'Unable to connect to GNSS receiver: {e}')
             return False
 
+    def configure_gnss(self):
+        """Configure the GNSS port to log NMEA data."""
+        configure_command = (
+            '\r\n'
+            'unlogall thisport\r\n'
+            'log gpggalong ontime 0.1\r\n'
+            'log gprmc ontime 0.1\r\n'
+            'log gpgst ontime 0.2\r\n'
+            'interfacemode rtcmv3 novatel\r\n'  # Set RX and TX
+        )
+
+        try:
+            self.gnss_socket.sendall(configure_command.encode('utf-8'))
+            logging.info(
+                f'Configuration command sent to port: {self.gnss_port}'
+            )
+
+            # Read the response to confirm configuration
+            response = self.gnss_socket.recv(1024).decode('utf-8')
+            logging.info(f'GNSS configured with response: {response}')
+        except (OSError, socket.timeout) as e:
+            logging.error(f'Failed to send configuration: {e}')
+
     def parse_novatel_binary(self, data):
         """
         Parse Novatel binary data to log response IDs.
@@ -420,6 +443,9 @@ class NtripClient:
             # Try to connect to gnss
             while not self.connect_to_gnss():
                 continue
+
+            # Configure GNSS
+            self.configure_gnss()
 
             try:
                 # Start reading GNSS logs in a separate thread
