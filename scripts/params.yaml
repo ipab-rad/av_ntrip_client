@@ -8,4 +8,3 @@ password: 'UOFE002'
 fix_latitude: 55.94567269060362
 fix_longitude: -3.187862754696656
 fix_altitude: 545.4
-chunk_size: 1024
