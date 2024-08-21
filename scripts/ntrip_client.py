@@ -120,11 +120,27 @@ class NtripClient:
     def connect_ntrip_server(self):
         """Connect to the NTRIP server."""
         self.ntrip_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.ntrip_socket.settimeout(10)
+        self.ntrip_socket.settimeout(6)
+
+        logging.info(
+            f'Attempting to connect to NTRIP server at'
+            f' {self.ntrip_host}:{self.ntrip_port}'
+        )
 
         try:
             self.ntrip_socket.connect((self.ntrip_host, self.ntrip_port))
-        except (OSError, socket.timeout) as e:
+        except socket.gaierror as e:
+            logging.error(
+                'Unable to connect to NTRIP server:'
+                f' DNS resolution failed: {e}'
+            )
+            return False
+        except socket.timeout as e:
+            logging.error(
+                f'Unable to connect to NTRIP server: Connection timed out: {e}'
+            )
+            return False
+        except OSError as e:
             logging.error(f'Unable to connect to NTRIP server: {e}')
             return False
 
@@ -149,7 +165,7 @@ class NtripClient:
             for success in ['ICY 200 OK', 'HTTP/1.0 200 OK', 'HTTP/1.1 200 OK']
         ):
             self.ntrip_connected = True
-            logging.info('Connected to NTRIP server.')
+            logging.info('Successfully connected to NTRIP server.')
             return True
 
         logging.error('Failed to connect to NTRIP server.')
@@ -173,9 +189,14 @@ class NtripClient:
         self.gnss_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.gnss_socket.settimeout(5)
 
+        logging.info(
+            f'Attempting to connect to GNSS receiver at'
+            f' {self.gnss_host}:{self.gnss_port}'
+        )
+
         try:
             self.gnss_socket.connect((self.gnss_host, self.gnss_port))
-            logging.info('Connected to GNSS receiver.')
+            logging.info('Successfully connected to GNSS receiver.')
             return True
         except (OSError, socket.timeout) as e:
             logging.error(f'Unable to connect to GNSS receiver: {e}')
@@ -192,11 +213,10 @@ class NtripClient:
             'interfacemode rtcmv3 novatel\r\n'  # Set RX and TX
         )
 
+        logging.info(f'Configuring GNSS {self.gnss_port} port')
+
         try:
             self.gnss_socket.sendall(configure_command.encode('utf-8'))
-            logging.info(
-                f'Configuration command sent to port: {self.gnss_port}'
-            )
 
             # Read the response to confirm configuration
             response = self.gnss_socket.recv(1024).decode('utf-8')
@@ -313,8 +333,7 @@ class NtripClient:
                 message = self.gnss_socket.recv(1024)
 
                 if message:
-
-                    # Split msgs into binary and ascii like msgs
+                    # Split msgs into binary and ascii type msgs
                     ascii_msgs, binary_msgs = self.split_data(message)
 
                     if ascii_msgs:
@@ -323,16 +342,19 @@ class NtripClient:
                         for ascci_msg in ascii_msgs:
                             msg = ascci_msg.decode()
                             if 'GPGGA' in msg:
-                                nmea_sentence += f'{msg}'
+                                nmea_sentence = f'{msg}'
 
-                        # If nmea sentences received, report back to
+                        # If nmea sentence received, report back to
                         #  NTRIP server
                         if nmea_sentence:
                             logging.debug(
-                                f'\nRecevied NMEA from GNSS:\n{nmea_sentence}'
+                                f'Recevied NMEA from GNSS: {nmea_sentence}'
                             )
 
                             if not self.use_fix_location:
+                                # (TODO) Validate the nmea_sentence. It is
+                                # possibl the GNSS is sending empty data if
+                                # satellite coverage is not available
                                 self.send_nmea_to_ntrip_server(nmea_sentence)
                             else:
                                 nmea_sentence = (
@@ -352,8 +374,6 @@ class NtripClient:
             except OSError as e:
                 logging.error(f'Error reading GNSS data: {e}')
                 logging.warning(f'Received: {message}')
-
-            # time.sleep(1)
 
     def send_rtcm_to_gnss(self, rctm_sentence):
         """Send a RTCMv3 message to the GNSS receiver."""
@@ -379,94 +399,103 @@ class NtripClient:
             self.nmea_request_sent = True
             logging.debug('NMEA sentence sent to NTRIP server.')
         except (OSError, socket.timeout) as e:
-            logging.error(f'Error sending NMEA sentence: {e}')
+            logging.error(
+                f'Error sending NMEA sentence to NTRIP server: {e}'
+                f'\nAttempting to reconnect..'
+            )
             self.nmea_request_sent = False
+            self.ntrip_connected = False
 
     def read_rtcm_and_send_to_gnss(self):
         """Read RTCM data and report back to GNSS."""
-        while self.ntrip_connected:
-            if not self.nmea_request_sent:
-                logging.debug('Waiting for client to send NMEA data.')
-                time.sleep(1)
-                continue
+        try:
+            server_response = b''
+            while True:
+                chunk = self.ntrip_socket.recv(self.chunk_size)
+                server_response += chunk
+                if len(chunk) < self.chunk_size:
+                    break
 
-            try:
-                server_response = b''
-                while True:
-                    chunk = self.ntrip_socket.recv(self.chunk_size)
-                    server_response += chunk
-                    if len(chunk) < self.chunk_size:
-                        break
+            if server_response:
+                if server_response[0] == 0xD3:
+                    # Server response contains RTCM data
+                    try:
+                        rtcm_msg = RTCMReader.parse(server_response)
+                        logging.debug(f'RTCM received ID: {rtcm_msg.identity}')
 
-                if server_response:
-                    if server_response[0] == 0xD3:
-                        # Server response contains RTCM data
-                        try:
-                            rtcm_msg = RTCMReader.parse(server_response)
-                            logging.debug(
-                                f'RTCM received ID: {rtcm_msg.identity}'
-                            )
+                        # Keep track of rtcm msgs ids co
+                        self.received_rtcm_msgs_ids[
+                            int(rtcm_msg.identity)
+                        ] += 1
 
-                            # Keep track of rtcm msgs ids co
-                            self.received_rtcm_msgs_ids[
-                                int(rtcm_msg.identity)
-                            ] += 1
-
-                        except exceptions.RTCMParseError as e:
-                            logging.warning(
-                                f'Error parsing RTCM data: {e}\n'
-                                f'Msg:\n {server_response}'
-                            )
-
-                    else:
+                    except exceptions.RTCMParseError as e:
                         logging.warning(
-                            f'Non-RTCM msg received from Ntrip server:\n'
-                            f'{server_response}'
+                            f'Error parsing RTCM data: {e}\n'
+                            f'Msg:\n {server_response}'
                         )
 
-                    # Send rtcm data to GNSS
-                    self.send_rtcm_to_gnss(server_response)
                 else:
-                    logging.info('No RTCMv3 data received.')
+                    logging.warning(
+                        f'Non-RTCM msg received from Ntrip server:\n'
+                        f'{server_response}'
+                    )
 
-            except socket.timeout:
-                logging.warning(
-                    'Ntrip server connection timeout occurred '
-                    'while reading RTCMv3.'
-                )
-                self.ntrip_connected = False
-                break
+                # Send rtcm data to GNSS
+                self.send_rtcm_to_gnss(server_response)
+            else:
+                logging.warning('NTRIP server replied with an empty message')
+                time.sleep(1)
+
+        except socket.timeout:
+            logging.warning(
+                'NTRIP server connection lost due to'
+                'timeout while reading RTCMv3. '
+                'Attempting to reconnect...'
+            )
+
+            self.ntrip_connected = False
 
     def run(self):
         """Run main execution loop."""
-        if self.connect_ntrip_server():
-            # Try to connect to gnss
-            while not self.connect_to_gnss():
-                continue
+        # Try to connect to GNSS
+        while not self.connect_to_gnss():
+            time.sleep(1)
+            continue
 
-            # Configure GNSS
-            self.configure_gnss()
+        # Configure GNSS
+        self.configure_gnss()
 
-            try:
-                # Start reading GNSS logs in a separate thread
-                self.gnss_log_thread = threading.Thread(
-                    target=self.read_nmea_and_send_to_server, daemon=True
-                )
-                self.gnss_log_thread.start()
+        try:
+            # Start reading GNSS logs in a separate thread
+            self.gnss_log_thread = threading.Thread(
+                target=self.read_nmea_and_send_to_server, daemon=True
+            )
+            self.gnss_log_thread.start()
+
+            while True:
+                if not self.ntrip_connected:
+                    if not self.connect_ntrip_server():
+                        time.sleep(1)
+                        continue
+
+                if not self.nmea_request_sent:
+                    logging.debug('Waiting for client to send NMEA data.')
+                    time.sleep(1)
+                    continue
 
                 # Read RTCM data and send to the gnss in the main thread
                 self.read_rtcm_and_send_to_gnss()
 
-            except KeyboardInterrupt:
-                logging.info('Interrupted by user. Disconnecting...')
-                logging.debug(
-                    f'\nReceived RTCM msgs types:\n'
-                    f'{self.received_rtcm_msgs_ids}'
-                )
-            finally:
-                self.stop_event.set()
-                self.gnss_log_thread.join()
-                self.disconnect_ntrip_server()
+        except KeyboardInterrupt:
+            logging.info('Interrupted by user. Disconnecting...')
+            logging.debug(
+                f'\nReceived RTCM msgs types:\n'
+                f'{self.received_rtcm_msgs_ids}'
+            )
+        finally:
+            self.stop_event.set()
+            self.gnss_log_thread.join()
+            self.disconnect_ntrip_server()
 
 
 if __name__ == '__main__':
