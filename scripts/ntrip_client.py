@@ -56,6 +56,7 @@ class NtripClient:
         self.use_fix_location = use_fix_location
         self.debug_mode = debug_mode
         self.received_rtcm_msgs_ids = defaultdict(int)
+        self.latest_nmea_data_valid = False
         # Novatel response offsets
         self.novatel_response_binary_dict = {
             'response_id': {'offset': 28, 'size': 4},
@@ -353,10 +354,23 @@ class NtripClient:
                         generated_sentence = (
                             self.nmea_generator.generate_gga_sentence()
                         )
+
                         self.send_nmea_to_ntrip_server(generated_sentence)
                     else:
-                        # (TODO): Validate this NMEA sentence
-                        self.send_nmea_to_ntrip_server(nmea_sentence)
+                        # Validate this NMEA sentence
+                        self.latest_nmea_data_valid = (
+                            self.nmea_generator.is_gpgga_data_valid(
+                                nmea_sentence
+                            )
+                        )
+
+                        if self.latest_nmea_data_valid:
+                            self.send_nmea_to_ntrip_server(nmea_sentence)
+                        else:
+                            logging.debug(
+                                'NMEA data is not valid. '
+                                'Skipping sending it to NTRIP server.'
+                            )
 
                 # Process binary messages
                 for binary_msg in binary_msgs:
@@ -412,6 +426,8 @@ class NtripClient:
                 time.sleep(1)
                 return
 
+            # 0xD3 is the RTCM message preamble.
+            # It indicates the start of an RTCM message.
             if server_response[0] == 0xD3:
                 # Server response contains RTCM data
                 try:
@@ -469,7 +485,9 @@ class NtripClient:
                         continue
 
                 if not self.nmea_request_sent:
-                    logging.debug('Waiting for client to send NMEA data.')
+                    logging.debug(
+                        'Waiting for client to send valid NMEA data.'
+                    )
                     time.sleep(1)
                     continue
 

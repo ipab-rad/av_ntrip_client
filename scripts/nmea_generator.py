@@ -102,3 +102,25 @@ class NMEAGenerator:
             f'{self.generate_gst_sentence()}\r\n'
         )
         return sentences
+
+    def is_gpgga_data_valid(self, nmea_sentence: str) -> bool:
+        """Validate GPGGA data."""
+        try:
+            # Split the sentence into its components
+            fields = nmea_sentence.split(',')
+
+            # Check the length of the fields, should be 14 or 15
+            if len(fields) < 14 or len(fields) > 15:
+                return False
+
+            # Validate GPS quality indicator (field 6)
+            gps_qual = int(fields[6])
+            if gps_qual == 0:
+                # If 0, data is not valid/reliable
+                return False
+
+            # If all validations passed, return True
+            return True
+
+        except (IndexError, ValueError):
+            return False
