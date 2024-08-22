@@ -354,7 +354,7 @@ class NtripClient:
                         generated_sentence = (
                             self.nmea_generator.generate_gga_sentence()
                         )
-
+                        self.latest_nmea_data_valid = True
                         self.send_nmea_to_ntrip_server(generated_sentence)
                     else:
                         # Validate this NMEA sentence
@@ -484,10 +484,15 @@ class NtripClient:
                         time.sleep(1)
                         continue
 
-                if not self.nmea_request_sent:
-                    logging.debug(
-                        'Waiting for client to send valid NMEA data.'
+                if not self.latest_nmea_data_valid:
+                    logging.info(
+                        'Waiting to receive valid NMEA data from GNSS ...'
                     )
+                    time.sleep(1)
+                    continue
+
+                if not self.nmea_request_sent:
+                    logging.info('Waiting for client to send valid NMEA data.')
                     time.sleep(1)
                     continue
 
