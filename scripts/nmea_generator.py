@@ -94,15 +94,6 @@ class NMEAGenerator:
         checksum = self._calculate_checksum(gst)
         return f'${gst}*{checksum}'
 
-    def get_fix_nmea_sentences(self):
-        """Generate and return NMEA sentences as string."""
-        sentences = (
-            f'{self.generate_gga_sentence()}\r\n'
-            f'{self.generate_rmc_sentence()}\r\n'
-            f'{self.generate_gst_sentence()}\r\n'
-        )
-        return sentences
-
     def is_gpgga_data_valid(self, nmea_sentence: str) -> bool:
         """Validate GPGGA data."""
         try:
