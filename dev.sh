@@ -34,6 +34,8 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# Create logs dir
+mkdir -p scripts/logs
 
 # Build the Docker image
 docker build \

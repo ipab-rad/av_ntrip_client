@@ -15,6 +15,7 @@ import socket
 import threading
 import time
 from collections import defaultdict
+from datetime import datetime
 
 import colorlog
 
@@ -60,8 +61,8 @@ class NtripClient:
             'response_id': {'offset': 28, 'size': 4},
             'checksum': {'size': 4},
         }
-        self.novatel_response_id_dict = {1: 'OK'}
-        self.SOCKET_BUFFER_SIZE = 1024
+        self.NOVATEL_OK_ID = 1
+        self.SOCKET_BUFFER_SIZE = 2048
         # Indicates the start of an RTCM message
         self.RTCM_DATA_PREAMBLE = 0xD3
         self.PAUSE_DURATION = 1.0
@@ -75,20 +76,40 @@ class NtripClient:
         )
 
     def configure_logging(self):
-        """Configure logging with color support."""
+        """Configure logging to support color and timestamped log file."""
+        # Define the log format for the console
         formatter = colorlog.ColoredFormatter(
             '%(asctime)s - %(log_color)s%(levelname)s%(reset)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S',
         )
+
+        # Create a console handler with the colored formatter
         console_handler = colorlog.StreamHandler()
         console_handler.setFormatter(formatter)
 
+        # Define the log format for the file
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S',
+        )
+
+        # Generate a timestamped log file name
+        timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+        log_filename = f'logs/{timestamp}_ntrip_client.log'
+
+        # Create a file handler with the log filename and formatter
+        file_handler = logging.FileHandler(log_filename)
+        file_handler.setFormatter(file_formatter)
+
+        # Determine the logging level based on debug_mode
         if self.debug_mode:
             logging.basicConfig(
-                level=logging.DEBUG, handlers=[console_handler]
+                level=logging.DEBUG, handlers=[console_handler, file_handler]
             )
         else:
-            logging.basicConfig(level=logging.INFO, handlers=[console_handler])
+            logging.basicConfig(
+                level=logging.INFO, handlers=[console_handler, file_handler]
+            )
 
     def load_config(self, config_path):
         """
@@ -148,9 +169,9 @@ class NtripClient:
                 f' DNS resolution failed: {e}'
             )
             return False
-        except socket.timeout as e:
+        except socket.timeout:
             logging.error(
-                f'Unable to connect to NTRIP server: Connection timed out: {e}'
+                'Unable to connect to NTRIP server: Connection timed out'
             )
             return False
         except OSError as e:
@@ -249,22 +270,32 @@ class NtripClient:
         Extracts and decodes the response ID from the binary data. Logs
         the decoded response ID or a warning if the ID is unknown.
 
+        This is based on Table 10 (1.5.3 Binary Response) of
+        Novatel OEM7 Command and Logs Manual (Rev: v1)
+
         Args:
             data (bytes): Binary data from Novatel.
         """
-        # Get response id information
-        offset = self.novatel_response_binary_dict['response_id']['offset']
-        end = offset + self.novatel_response_binary_dict['response_id']['size']
-        # Decode response id into decimal number
-        response_id = int.from_bytes(data[offset:end], byteorder='little')
-        if response_id in self.novatel_response_id_dict:
-            logging.debug(
-                f'Novatel reply with: '
-                f'{self.novatel_response_id_dict[response_id]}'
-            )
+        # Extract relevant metadata from the response dictionary
+        resp_info = self.novatel_response_binary_dict['response_id']
+        resp_id_end = resp_info['offset'] + resp_info['size']
+        checksum_size = self.novatel_response_binary_dict['checksum']['size']
+
+        # Decode the response ID
+        resp_id = int.from_bytes(
+            data[resp_info['offset'] : resp_id_end],  # noqa: E203
+            byteorder='little',
+        )
+
+        # Extract the remaining response content, excluding the checksum
+        resp = data[resp_id_end:-checksum_size]  # noqa: E203
+
+        # Log the response based on the response ID
+        if resp_id == self.NOVATEL_OK_ID:
+            logging.debug(f'GNSS response: {resp.decode('utf-8')}')
         else:
             logging.warning(
-                f'Novatel reply with unknown response id: {response_id}'
+                f'GNSS returned an unexpected response: {resp.decode('utf-8')}'
             )
 
     def split_data(self, data):
@@ -363,9 +394,9 @@ class NtripClient:
                 )
 
                 if nmea_sentence:
-                    logging.debug(
-                        f'NMEA data received from GNSS: {nmea_sentence}'
-                    )
+                    # logging.debug(
+                    #     f'NMEA data received from GNSS: {nmea_sentence}'
+                    # )
 
                     if self.use_fix_location:
                         generated_sentence = (
@@ -424,7 +455,7 @@ class NtripClient:
         try:
             self.ntrip_socket.send(request.encode())
             self.nmea_request_sent = True
-            logging.debug('NMEA message sent to NTRIP server.')
+            # logging.debug('NMEA message sent to NTRIP server.')
         except (OSError, socket.timeout) as e:
             logging.error(
                 f'Error sending NMEA sentence to NTRIP server: {e}'

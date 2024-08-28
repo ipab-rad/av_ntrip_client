@@ -44,6 +44,9 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# Create logs dir
+mkdir -p scripts/logs
+
 # Build the Docker image
 docker build \
     -t av_ntrip_client:latest \
@@ -52,5 +55,6 @@ docker build \
 # Run the Docker container and pass any provided arguments
 docker run -it --rm --net host --privileged \
     -v /etc/localtime:/etc/localtime:ro \
+    -v ./scripts/logs:/workspace/scripts/logs \
     $ENTRYPOINT \
     av_ntrip_client:latest $BASH_CMD
