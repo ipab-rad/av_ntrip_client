@@ -46,7 +46,6 @@ class NtripClient:
             use_fix_location (bool): Whether to use a fixed GPS location.
             debug_mode (bool): Whether to enable debug mode.
         """
-        self.load_config(config_path)
         self.ntrip_socket = None
         self.gnss_socket = None
         self.ntrip_connected = False
@@ -68,6 +67,8 @@ class NtripClient:
         self.PAUSE_DURATION = 1.0
 
         self.configure_logging()
+
+        self.load_config(config_path)
 
         self.nmea_generator = NMEAGenerator(
             self.fix_latitude, self.fix_longitude, self.fix_altitude
@@ -99,22 +100,35 @@ class NtripClient:
         Args:
             config_path (str): Path to the YAML configuration file.
         """
-        with open(config_path) as file:
-            config = yaml.safe_load(file)
-            self.gnss_host = config['gnss_host']
-            self.gnss_port = config['gnss_port']
-            self.ntrip_host = config['ntrip_host']
-            self.ntrip_port = config['ntrip_port']
-            self.mountpoint = config['mountpoint']
-            self.username = config['username']
-            self.password = config['password']
-            self.fix_latitude = config['fix_latitude']
-            self.fix_longitude = config['fix_longitude']
-            self.fix_altitude = config['fix_altitude']
+        try:
+            with open(config_path) as file:
+                config = yaml.safe_load(file)
+                self.gnss_host = config['gnss_host']
+                self.gnss_port = config['gnss_port']
+                self.ntrip_host = config['ntrip_host']
+                self.ntrip_port = config['ntrip_port']
+                self.mountpoint = config['mountpoint']
+                self.username = config['username']
+                self.password = config['password']
+                self.fix_latitude = config['fix_latitude']
+                self.fix_longitude = config['fix_longitude']
+                self.fix_altitude = config['fix_altitude']
 
-            self.credentials = base64.b64encode(
-                f'{self.username}:{self.password}'.encode()
-            ).decode()
+                self.credentials = base64.b64encode(
+                    f'{self.username}:{self.password}'.encode()
+                ).decode()
+
+        except FileNotFoundError:
+            logging.error(
+                f'Configuration file at {config_path} does not exist.'
+            )
+            raise SystemExit()
+        except yaml.YAMLError as e:
+            logging.error(f'Error parsing the configuration file: {e}')
+            raise SystemExit()
+        except KeyError as e:
+            logging.error(f'Missing required YAML parameter: {e}')
+            raise SystemExit()
 
     def connect_ntrip_server(self):
         """Connect to the NTRIP server."""
@@ -518,11 +532,15 @@ class NtripClient:
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Ntrip Client')
-
+    parser.add_argument(
+        '--param-file',
+        default='av_ntrip_credentials/smartnet_novatel_params.yaml',
+        help='Path to the YAML file containing Ntrip server credentials',
+    )
     parser.add_argument(
         '--use-fix-location',
         action='store_true',
-        help='Use fixed location for Ntrip Client',
+        help='Use fixed location for Ntrip requests',
     )
     parser.add_argument(
         '--debug', action='store_true', help='Enable debug mode'
@@ -531,7 +549,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     client = NtripClient(
-        config_path='params.yaml',
+        config_path=args.param_file,
         use_fix_location=args.use_fix_location,
         debug_mode=args.debug,
     )

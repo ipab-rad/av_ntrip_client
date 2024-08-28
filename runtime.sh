@@ -7,14 +7,15 @@
 # Function to print usage
 usage() {
     echo "
-Usage: dev.sh [-b|bash] [--use-fix-location] [--debug ] [-h|--help]
+Usage: dev.sh [-b|bash] [--param-file] [--use-fix-location] [--debug ] [-h|--help]
 
 Where:
     -b | bash           Open bash in docker container
-    --use-fix-location  Use fixed location for Ntrip Client
+    --param-file        Path to the YAML file containing Ntrip server credentials
+    --use-fix-location  Use fixed location for Ntrip requests
     --debug             Run Ntrip Client in debug mode
     -h | --help         Show this help message
-    "
+    "d
     exit 1
 }
 
@@ -28,7 +29,7 @@ while [[ "$#" -gt 0 ]]; do
             ENTRYPOINT="--entrypoint /bin/bash"
             BASH_CMD=""
             ;;
-        --use-fix-location|--debug)
+        --use-fix-location|--debug|--param-file)
             # These flags are intended to be passed to
             # the Docker container, so no action is needed here
             ;;
