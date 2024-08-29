@@ -15,7 +15,7 @@ Where:
     --use-fix-location  Use fixed location for Ntrip requests
     --debug             Run Ntrip Client in debug mode
     -h | --help         Show this help message
-    "d
+    "
     exit 1
 }
 

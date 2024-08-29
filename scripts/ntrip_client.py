@@ -292,10 +292,10 @@ class NtripClient:
 
         # Log the response based on the response ID
         if resp_id == self.NOVATEL_OK_ID:
-            logging.debug(f'GNSS response: {resp.decode('utf-8')}')
+            logging.debug(f'GNSS response: {resp.decode()}')
         else:
             logging.warning(
-                f'GNSS returned an unexpected response: {resp.decode('utf-8')}'
+                f'GNSS returned an unexpected response: {resp.decode()}'
             )
 
     def split_data(self, data):
