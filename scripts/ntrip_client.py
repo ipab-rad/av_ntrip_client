@@ -394,9 +394,6 @@ class NtripClient:
                 )
 
                 if nmea_sentence:
-                    # logging.debug(
-                    #     f'NMEA data received from GNSS: {nmea_sentence}'
-                    # )
 
                     if self.use_fix_location:
                         generated_sentence = (
@@ -455,7 +452,6 @@ class NtripClient:
         try:
             self.ntrip_socket.send(request.encode())
             self.nmea_request_sent = True
-            # logging.debug('NMEA message sent to NTRIP server.')
         except (OSError, socket.timeout) as e:
             logging.error(
                 f'Error sending NMEA sentence to NTRIP server: {e}'
