@@ -1,0 +1,11 @@
+gnss_host: 'YOUR_GPS_HOST_IP'
+gnss_port: 1234 # Change accordingly
+ntrip_host: 'YOUR_NTRIP_HOST'
+ntrip_port: 4321 # Change accordingly
+mountpoint: 'MSM_iMAX' # 'MSM_NEAR', 'MSM_iMAX' or 'MSM_VRS'
+username: 'YOUR_NTRIP_USERNAME'
+password: 'YOUR_NTRIP_PASSWORD'
+# Your custom fix GPS coordinate
+fix_latitude: 51.0
+fix_longitude: -3.8
+fix_altitude: 500.0
