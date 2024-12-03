@@ -101,15 +101,18 @@ class NtripClient:
         file_handler = logging.FileHandler(log_filename)
         file_handler.setFormatter(file_formatter)
 
-        # Determine the logging level based on debug_mode
-        if self.debug_mode:
-            logging.basicConfig(
-                level=logging.DEBUG, handlers=[console_handler, file_handler]
-            )
-        else:
-            logging.basicConfig(
-                level=logging.INFO, handlers=[console_handler, file_handler]
-            )
+        # Set specific log levels for each handler
+        console_handler.setLevel(
+            logging.DEBUG if self.debug_mode else logging.INFO
+        )
+        file_handler.setLevel(logging.DEBUG)
+
+        # Get the root logger and add the handlers
+        logger = logging.getLogger()
+        # Set root logger level to DEBUG to ensure all messages are processed
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(console_handler)
+        logger.addHandler(file_handler)
 
     def load_config(self, config_path):
         """
