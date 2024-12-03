@@ -101,15 +101,18 @@ class NtripClient:
         file_handler = logging.FileHandler(log_filename)
         file_handler.setFormatter(file_formatter)
 
-        # Determine the logging level based on debug_mode
-        if self.debug_mode:
-            logging.basicConfig(
-                level=logging.DEBUG, handlers=[console_handler, file_handler]
-            )
-        else:
-            logging.basicConfig(
-                level=logging.INFO, handlers=[console_handler, file_handler]
-            )
+        # Set specific log levels for each handler
+        console_handler.setLevel(
+            logging.DEBUG if self.debug_mode else logging.INFO
+        )
+        file_handler.setLevel(logging.DEBUG)
+
+        # Get the root logger and add the handlers
+        logger = logging.getLogger()
+        # Set root logger level to DEBUG to ensure all messages are processed
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(console_handler)
+        logger.addHandler(file_handler)
 
     def load_config(self, config_path):
         """
@@ -485,13 +488,15 @@ class NtripClient:
                     # Keep track of RTCM message IDs
                     self.received_rtcm_msgs_ids[int(rtcm_msg.identity)] += 1
 
-                except exceptions.RTCMParseError as e:
-                    logging.warning(
-                        f'Error parsing RTCM data: {e}\n'
-                        f'Msg:\n {server_response}'
-                    )
+                except exceptions.RTCMParseError:
+                    # This catch is only to avoid runtime crashes
+                    pass
+
             else:
-                logging.warning(
+                # We don't mind if the NTRIP server response was not
+                # an RTCM message. The GNSS will know what to do
+                # with it. We just log it for future reference
+                logging.debug(
                     f'Non-RTCM msg received from Ntrip server:\n'
                     f'{server_response}'
                 )
