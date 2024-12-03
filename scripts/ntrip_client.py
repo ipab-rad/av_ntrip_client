@@ -485,13 +485,15 @@ class NtripClient:
                     # Keep track of RTCM message IDs
                     self.received_rtcm_msgs_ids[int(rtcm_msg.identity)] += 1
 
-                except exceptions.RTCMParseError as e:
-                    logging.warning(
-                        f'Error parsing RTCM data: {e}\n'
-                        f'Msg:\n {server_response}'
-                    )
+                except exceptions.RTCMParseError:
+                    # This catch is only to avoid runtime crashes
+                    pass
+
             else:
-                logging.warning(
+                # We don't mind if the NTRIP server response was not
+                # an RTCM message. The GNSS will know what to do
+                # with it. We just log it for future reference
+                logging.debug(
                     f'Non-RTCM msg received from Ntrip server:\n'
                     f'{server_response}'
                 )
