@@ -207,6 +207,7 @@ class NtripClient:
             logging.info('Successfully connected to NTRIP server.')
             return True
 
+        logging.debug(f'NTRIP server response: {response}')
         logging.error('Failed to connect to NTRIP server.')
         return False
 
